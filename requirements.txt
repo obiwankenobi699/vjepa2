@@ -1,0 +1,19 @@
+# Core ML
+torch==2.3.1+cu121
+torchvision==0.18.1+cu121
+torchaudio==2.3.1+cu121
+
+# Hugging Face
+transformers>=4.51.0
+accelerate>=0.30.0
+
+# Video decoding
+torchcodec>=0.1.0
+
+# Vision / webcam
+opencv-python>=4.9.0.80
+numpy>=1.26.0
+
+# Utilities
+Pillow>=10.3.0
+tqdm>=4.66.0
