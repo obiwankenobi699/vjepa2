@@ -1,4 +1,4 @@
-"""HawkWatch — Main Entry Point"""
+"""HawkWatch — Main Entry Point (Dual Model)"""
 import os
 os.environ["QT_QPA_PLATFORM"]  = "xcb"
 os.environ["QT_LOGGING_RULES"] = "*.debug=false"
@@ -15,7 +15,7 @@ from hud        import draw_hud
 
 def main(camera_index: int = 0):
     print("\n" + "="*52)
-    print("  HawkWatch — Initializing")
+    print("  HawkWatch — Dual Model Init")
     print("="*52)
 
     detector   = ObjectDetector()
@@ -26,12 +26,14 @@ def main(camera_index: int = 0):
     if not cap.isOpened():
         print(f"[ERROR] Cannot open camera {camera_index}")
         sys.exit(1)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # minimize capture buffer lag
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(config.WINDOW_NAME, config.DISPLAY_WIDTH, config.DISPLAY_HEIGHT)
 
-    print(f"\n[INFO] Live on camera {camera_index}")
+    print(f"\n[INFO] Camera {camera_index} live")
+    print(f"[INFO] V-JEPA 2  : motion analysis  (async)")
+    print(f"[INFO] Moondream2: scene description (every {config.VLM_SAMPLE_EVERY} frames)")
     print(f"[INFO] q = quit   l = open log\n")
 
     fps   = 0.0
@@ -44,30 +46,25 @@ def main(camera_index: int = 0):
             continue
         count += 1
 
-        # ── YOLO: every frame, real-time ─────
+        # YOLO — every frame
         detections = detector.detect(frame)
         frame      = detector.draw(frame, detections)
 
-        # ── Push frame to async VJEPA buffer ─
-        import cv2 as _cv2, numpy as _np
-        resized = _cv2.resize(
-            _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB),
-            config.CLIP_SIZE
-        )
-        classifier.push_frame(resized)
-        vjepa_state = classifier.get_state()
+        # Both models — single push_frame call handles routing
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        classifier.push_frame(frame_rgb)
+        state = classifier.get_state()
 
-        # ── Alert engine ─────────────────────
-        alerter.evaluate(frame, detections, vjepa_state)
+        # Alert engine
+        alerter.evaluate(frame, detections, state)
 
-        # ── FPS ──────────────────────────────
+        # FPS
         if count % 30 == 0:
             elapsed = (cv2.getTickCount() - tick) / cv2.getTickFrequency()
             fps     = 30 / elapsed
             tick    = cv2.getTickCount()
 
-        # ── Render ───────────────────────────
-        display = draw_hud(frame, fps, vjepa_state, alerter, detections, count)
+        display = draw_hud(frame, fps, state, alerter, detections, count)
         cv2.imshow(config.WINDOW_NAME, display)
 
         key = cv2.waitKey(1) & 0xFF
@@ -82,10 +79,8 @@ def main(camera_index: int = 0):
 
     cap.release()
     cv2.destroyAllWindows()
-    print(f"\n[INFO] Session ended")
-    print(f"[INFO] {alerter.incident_count} incidents logged")
-    print(f"[INFO] Frames : logs/frames/")
-    print(f"[INFO] Events : logs/events.jsonl")
+    print(f"\n[INFO] Session ended — {alerter.incident_count} incidents logged")
+    print(f"[INFO] Frames : logs/frames/  |  Events : logs/events.jsonl")
 
 
 if __name__ == "__main__":
