@@ -1,78 +1,94 @@
-"""HawkWatch — Alert Engine (Dual Model)"""
+"""NazarAI — Alert Engine (fixed severity thresholds)"""
 import os, cv2, json, time, datetime
 import numpy as np
 import config
 
+
 class AlertEngine:
     def __init__(self):
         os.makedirs(config.ALERT_FRAME_DIR, exist_ok=True)
-        self._last_alert    = 0.0
+        self._last         = 0.0
         self.incident_count = 0
-        self.active         = False
-        self.active_reason  = ""
+        self.active        = False
+        self.active_tier   = "CLEAR"
+        self.active_reason = ""
 
-    def evaluate(self, frame: np.ndarray, detections: list, state: dict):
-        now            = time.time()
-        threat_objects = [d for d in detections if d["is_threat"]]
-        persons        = [d for d in detections if d["class_id"] == 0]
+    def evaluate(self, frame: np.ndarray, detections: list,
+                 s2_state: dict, s3_state: dict):
+        now     = time.time()
+        threats = [d for d in detections if d["is_threat"]]
+        persons = [d for d in detections if d["class_id"] == 0]
 
-        tier = state.get("tier", "CLEAR")
-        should_alert = (
-            bool(threat_objects) or
-            (tier in ("HIGH", "MEDIUM") and bool(persons))
-        )
+        s2_confirmed = s2_state.get("confirmed", False)
+        s2_score     = s2_state.get("score", 0.0)
+        s3_susp      = s3_state.get("suspicious", False)
+        s3_cat       = s3_state.get("category", "SAFE")
+        s3_sev       = int(s3_state.get("severity", 0))
 
-        if not should_alert:
-            self.active = False
+        # Tier logic — much stricter than before
+        if threats:
+            tier = "CRITICAL"
+        elif s3_susp and s3_sev >= config.ALERT_MIN_SEVERITY_HIGH:
+            tier = "HIGH"
+        elif (s3_susp and s3_sev >= config.ALERT_MIN_SEVERITY_MEDIUM) or s2_confirmed:
+            tier = "MEDIUM"
+        else:
+            # CLEAR — reset and return
+            self.active      = False
+            self.active_tier = "CLEAR"
             return None
-        if (now - self._last_alert) < config.ALERT_COOLDOWN_SEC:
-            self.active = True
+
+        # Don't alert for MEDIUM unless person actually present
+        if tier == "MEDIUM" and not persons and not threats:
+            self.active      = False
+            self.active_tier = "CLEAR"
             return None
 
-        self._last_alert = now
+        if (now - self._last) < config.ALERT_COOLDOWN_SEC:
+            self.active      = True
+            self.active_tier = tier
+            return None
+
+        self._last = now
         self.incident_count += 1
 
-        reasons = []
-        if threat_objects:
-            reasons.append("weapon: " + ", ".join(d["label"] for d in threat_objects))
-        if state.get("vjepa_susp"):
-            reasons.append(f"motion: {state['label']} ({state['confidence']:.2f})")
-        if state.get("vlm_suspicious"):
-            reasons.append(f"scene: {state['description'][:60]}")
+        parts = []
+        if threats:
+            parts.append("WEAPON: " + ", ".join(d["label"] for d in threats))
+        if s3_susp:
+            parts.append(f"Qwen: [{s3_cat}] sev={s3_sev} — {s3_state.get('description','')[:50]}")
+        elif s2_confirmed:
+            parts.append(f"MobileNet confirmed (score={s2_score:.2f})")
 
-        reason = " | ".join(reasons) if reasons else f"tier={tier}"
+        reason = " | ".join(parts) or tier
         self.active        = True
+        self.active_tier   = tier
         self.active_reason = reason
 
         ts    = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        fname = f"{ts}_{tier.lower()}_incident_{self.incident_count:04d}.jpg"
+        fname = f"{ts}_{tier.lower()}_#{self.incident_count:04d}.jpg"
         fpath = os.path.join(config.ALERT_FRAME_DIR, fname)
         cv2.imwrite(fpath, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
 
         event = {
-            "timestamp":    datetime.datetime.now().isoformat(),
-            "incident_id":  self.incident_count,
-            "tier":         tier,
-            "reason":       reason,
-            "frame_path":   fpath,
-            "yolo": [
-                {"label": d["label"], "conf": round(d["confidence"], 3),
-                 "bbox": d["bbox"], "threat": d["is_threat"]}
-                for d in detections
-            ],
-            "vjepa": {
-                "label":      state["label"],
-                "confidence": round(state["confidence"], 3),
-                "suspicious": state.get("vjepa_susp", False),
-            },
-            "moondream": {
-                "description": state.get("description", ""),
-                "suspicious":  state.get("vlm_suspicious", False),
-            },
+            "timestamp":   datetime.datetime.now().isoformat(),
+            "incident_id": self.incident_count,
+            "tier":        tier,
+            "reason":      reason,
+            "frame_path":  fpath,
+            "yolo":  [{"label":d["label"],"conf":round(d["confidence"],3),
+                       "bbox":d["bbox"],"threat":d["is_threat"]} for d in detections],
+            "stage2": {"score":round(s2_score,3),"confirmed":s2_confirmed},
+            "stage3": {"category":s3_cat,"severity":s3_sev,
+                       "description":s3_state.get("description",""),
+                       "calls":s3_state.get("calls",0)},
         }
         with open(config.ALERT_LOG_PATH, "a") as f:
             f.write(json.dumps(event) + "\n")
 
-        print(f"[ALERT] [{tier}] Incident #{self.incident_count:04d} — {reason}")
-        print(f"        Saved : {fpath}")
+        print(f"\n{'█'*56}")
+        print(f"  [ALERT] [{tier}] #{self.incident_count:04d}")
+        print(f"  {reason}")
+        print(f"  Saved: {fpath}")
+        print(f"{'█'*56}\n")
         return event

@@ -1,22 +1,35 @@
-# Core ML
-torch==2.3.1+cu121
-torchvision==0.18.1+cu121
-torchaudio==2.3.1+cu121
+# ─────────────────────────────────────
+# Core ML (match your installed stack)
+# ─────────────────────────────────────
+torch>=2.10.0
+torchvision>=0.25.0
+torchaudio>=2.10.0
 
-# Hugging Face
+# Optional (only if you actually use it)
+torchcodec>=0.11.0
+
+# ─────────────────────────────────────
+# Hugging Face (VLM + Video)
+# ─────────────────────────────────────
 transformers>=4.51.0
 accelerate>=0.30.0
+safetensors>=0.4.3
 
-# Video decoding
-torchcodec>=0.1.0
-
-# Vision / webcam
+# ─────────────────────────────────────
+# Vision / Camera
+# ─────────────────────────────────────
 opencv-python>=4.9.0.80
 numpy>=1.26.0
-
-# Utilities
 Pillow>=10.3.0
+
+# ─────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────
 tqdm>=4.66.0
+
+# ─────────────────────────────────────
+# Backend (optional API layer)
+# ─────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
