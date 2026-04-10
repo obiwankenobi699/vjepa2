@@ -1,5 +1,8 @@
 """HawkWatch — Main Entry Point (Dual Model)"""
 import os
+
+import cv2
+
 os.environ["QT_QPA_PLATFORM"]  = "xcb"
 os.environ["QT_LOGGING_RULES"] = "*.debug=false"
 
